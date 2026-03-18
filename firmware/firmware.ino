@@ -6,13 +6,15 @@
 #include "gps_task.h"
 #include "rtc_task.h"
 #include "display_task.h"
+#include "debug_log.h"
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  initDebugLog();
 
-  Serial.println();
-  Serial.println("=== BOOT ===");
+  debugLogPrintln();
+  debugLogPrintln("=== BOOT ===");
 
   initAppState();
   loadSettings();

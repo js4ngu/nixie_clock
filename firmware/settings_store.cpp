@@ -2,6 +2,7 @@
 
 #include <Preferences.h>
 #include "app_state.h"
+#include "debug_log.h"
 
 namespace {
   Preferences prefs;
@@ -21,8 +22,8 @@ void loadSettings() {
   setDimming(dimming);
   setDivergencePeriod(period);
 
-  Serial.printf("[SETTINGS] loaded: dimming=%u, divergencePeriod=%lu sec\n",
-                dimming, period);
+  debugLogPrintf("[SETTINGS] loaded: dimming=%u, divergencePeriod=%lu sec\n",
+                 dimming, period);
 }
 
 void saveDimmingSetting(uint8_t dimming) {
@@ -30,7 +31,7 @@ void saveDimmingSetting(uint8_t dimming) {
   prefs.putUChar(KEY_DIMMING, dimming);
   prefs.end();
 
-  Serial.printf("[SETTINGS] saved dimming=%u\n", dimming);
+  debugLogPrintf("[SETTINGS] saved dimming=%u\n", dimming);
 }
 
 void saveDivergencePeriodSetting(uint32_t periodSec) {
@@ -38,5 +39,5 @@ void saveDivergencePeriodSetting(uint32_t periodSec) {
   prefs.putUInt(KEY_PERIOD, periodSec);
   prefs.end();
 
-  Serial.printf("[SETTINGS] saved divergencePeriod=%lu sec\n", periodSec);
+  debugLogPrintf("[SETTINGS] saved divergencePeriod=%lu sec\n", periodSec);
 }

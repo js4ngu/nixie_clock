@@ -7,6 +7,7 @@
 #include "app_state.h"
 #include "settings_store.h"
 #include "debug_config.h"
+#include "debug_log.h"
 
 namespace {
   const char* AP_SSID = "NixieClock";
@@ -60,6 +61,43 @@ namespace {
     return (state.timeSource == TIME_SOURCE_GPS) ? "GPS" : "RTC";
   }
 
+  String getDimmingText(const AppState& state) {
+    return String(state.dimming) + "%";
+  }
+
+  String getDivergencePeriodText(const AppState& state) {
+    const uint32_t period = state.divergencePeriod;
+
+    if (period % 3600 == 0) {
+      return String(period / 3600) + " hour";
+    }
+
+    if (period % 60 == 0) {
+      return String(period / 60) + " minutes";
+    }
+
+    return String(period) + " sec";
+  }
+
+  String escapeJson(const String& input) {
+    String output;
+    output.reserve(input.length() + 32);
+
+    for (size_t i = 0; i < input.length(); ++i) {
+      char c = input[i];
+      switch (c) {
+        case '\\': output += "\\\\"; break;
+        case '"': output += "\\\""; break;
+        case '\n': output += "\\n"; break;
+        case '\r': output += "\\r"; break;
+        case '\t': output += "\\t"; break;
+        default: output += c; break;
+      }
+    }
+
+    return output;
+  }
+
   String makeHtmlPage(const AppState& state) {
     String html = R"rawliteral(
 <!DOCTYPE html>
@@ -107,6 +145,11 @@ namespace {
       margin-bottom: 6px;
       color: #d0d0d0;
     }
+    .status-value {
+      font-size: 30px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
     .slider-value {
       margin-top: 10px;
       font-size: 20px;
@@ -142,6 +185,22 @@ namespace {
       font-size: 13px;
       color: #9a9a9a;
     }
+    .log-box {
+      margin-top: 12px;
+      background: #0b0b0c;
+      color: #9af7a2;
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 220px;
+      max-height: 320px;
+      overflow-y: auto;
+      font: 12px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-box.rtc {
+      color: #7ed7ff;
+    }
   </style>
 </head>
 <body>
@@ -154,6 +213,18 @@ namespace {
       <div class="subvalue">Signal Quality: <span id="signalQuality">__SIGNAL_QUALITY__</span></div>
       <div class="subvalue">Satellites: <span id="satellites">__SATELLITES__</span></div>
       <div class="subvalue">Time Source: <span id="timeSource">__TIME_SOURCE__</span></div>
+    </div>
+
+    <div class="card">
+      <div class="label">CURRENT DIMMING</div>
+      <div class="status-value" id="dimmingStatus">__DIMMING_TEXT__</div>
+      <div class="hint">현재 저장된 디밍 값입니다.</div>
+    </div>
+
+    <div class="card">
+      <div class="label">DIVERGENCE MODE PERIOD</div>
+      <div class="status-value" id="divergencePeriodStatus">__DIVERGENCE_PERIOD_TEXT__</div>
+      <div class="hint">현재 저장된 다이버전스 모드 주기입니다.</div>
     </div>
 
     <div class="card">
@@ -175,6 +246,18 @@ namespace {
       <button onclick="applyPeriod()">주기 적용</button>
       <div class="hint">다이버전스미터 모드 동작 주기를 설정합니다.</div>
     </div>
+
+    <div class="card">
+      <div class="label">RTC LOG</div>
+      <div class="hint">RTC 초기화, 동기화, 현재 시각 갱신 로그만 별도로 표시합니다.</div>
+      <pre class="log-box rtc" id="rtcLogs">loading...</pre>
+    </div>
+
+    <div class="card">
+      <div class="label">DEBUG LOG</div>
+      <div class="hint">최근 디버그 로그만 보관됩니다. GPS 수신 상태를 실시간으로 확인할 수 있습니다.</div>
+      <pre class="log-box" id="debugLogs">loading...</pre>
+    </div>
   </div>
 
   <script>
@@ -184,7 +267,11 @@ namespace {
     const signalQuality = document.getElementById('signalQuality');
     const satellites = document.getElementById('satellites');
     const timeSource = document.getElementById('timeSource');
+    const dimmingStatus = document.getElementById('dimmingStatus');
+    const divergencePeriodStatus = document.getElementById('divergencePeriodStatus');
     const periodSelect = document.getElementById('divergencePeriod');
+    const rtcLogs = document.getElementById('rtcLogs');
+    const debugLogs = document.getElementById('debugLogs');
 
     slider.addEventListener('input', () => {
       dimmingValue.textContent = slider.value;
@@ -211,6 +298,8 @@ namespace {
         signalQuality.textContent = data.signalQualityText;
         satellites.textContent = data.gpsSatellites;
         timeSource.textContent = data.timeSourceText;
+        dimmingStatus.textContent = data.dimmingText;
+        divergencePeriodStatus.textContent = data.divergencePeriodText;
 
         slider.value = data.dimming;
         dimmingValue.textContent = data.dimming;
@@ -220,8 +309,44 @@ namespace {
       }
     }
 
-    window.addEventListener('load', refreshState);
-    setInterval(refreshState, 2000);
+    async function refreshRtcLogs() {
+      try {
+        const shouldStick = rtcLogs.scrollTop + rtcLogs.clientHeight >= rtcLogs.scrollHeight - 20;
+        const res = await fetch('/api/rtc-logs');
+        const data = await res.json();
+
+        rtcLogs.textContent = data.logs || '';
+
+        if (shouldStick) {
+          rtcLogs.scrollTop = rtcLogs.scrollHeight;
+        }
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    async function refreshLogs() {
+      try {
+        const shouldStick = debugLogs.scrollTop + debugLogs.clientHeight >= debugLogs.scrollHeight - 20;
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+
+        debugLogs.textContent = data.logs || '';
+
+        if (shouldStick) {
+          debugLogs.scrollTop = debugLogs.scrollHeight;
+        }
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    async function refreshAll() {
+      await Promise.all([refreshState(), refreshRtcLogs(), refreshLogs()]);
+    }
+
+    window.addEventListener('load', refreshAll);
+    setInterval(refreshAll, 2000);
   </script>
 </body>
 </html>
@@ -232,6 +357,8 @@ namespace {
     html.replace("__SATELLITES__", String(state.gpsSatellites));
     html.replace("__TIME_SOURCE__", getTimeSourceText(state));
     html.replace("__DIMMING__", String(state.dimming));
+    html.replace("__DIMMING_TEXT__", getDimmingText(state));
+    html.replace("__DIVERGENCE_PERIOD_TEXT__", getDivergencePeriodText(state));
 
     return html;
   }
@@ -255,7 +382,31 @@ namespace {
     json += "\"gpsReceiving\":" + String(state.gpsReceiving ? "true" : "false") + ",";
     json += "\"gpsEverLocked\":" + String(state.gpsEverLocked ? "true" : "false") + ",";
     json += "\"dimming\":" + String(state.dimming) + ",";
-    json += "\"divergencePeriod\":" + String(state.divergencePeriod);
+    json += "\"dimmingText\":\"" + getDimmingText(state) + "\",";
+    json += "\"divergencePeriod\":" + String(state.divergencePeriod) + ",";
+    json += "\"divergencePeriodText\":\"" + getDivergencePeriodText(state) + "\"";
+    json += "}";
+
+    server.send(200, "application/json", json);
+  }
+
+  void handleApiRtcLogs() {
+    String logs;
+    getRtcLogSnapshot(logs);
+
+    String json = "{";
+    json += "\"logs\":\"" + escapeJson(logs) + "\"";
+    json += "}";
+
+    server.send(200, "application/json", json);
+  }
+
+  void handleApiLogs() {
+    String logs;
+    getDebugLogSnapshot(logs);
+
+    String json = "{";
+    json += "\"logs\":\"" + escapeJson(logs) + "\"";
     json += "}";
 
     server.send(200, "application/json", json);
@@ -342,6 +493,8 @@ void startWebServer() {
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/state", HTTP_GET, handleApiState);
+  server.on("/api/rtc-logs", HTTP_GET, handleApiRtcLogs);
+  server.on("/api/logs", HTTP_GET, handleApiLogs);
   server.on("/api/dimming", HTTP_GET, handleApiDimming);
   server.on("/api/period", HTTP_GET, handleApiPeriod);
   server.onNotFound(handleNotFound);

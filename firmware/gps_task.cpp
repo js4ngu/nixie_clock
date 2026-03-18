@@ -38,7 +38,7 @@ namespace {
 
     gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
-    Serial.println("[GPS TASK] started");
+    GPS_DEBUG_PRINTLN("[GPS TASK] started");
 
     while (1) {
 
@@ -129,4 +129,4 @@ void startGPSTask() {
     &gpsTaskHandle,
     1
   );
-}ㅇ
+}
