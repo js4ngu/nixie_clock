@@ -8,6 +8,7 @@ AppState gAppState = {
   0,                    // gpsSatellites
   50,                   // dimming
   3600,                 // divergencePeriod
+  2500,                 // divergenceEffectMs
   TIME_SOURCE_RTC,      // timeSource
   {2025, 1, 1, 0, 0, 0} // currentTime
 };
@@ -117,6 +118,20 @@ uint32_t getDivergencePeriod() {
   uint32_t value;
   xSemaphoreTake(gAppStateMutex, portMAX_DELAY);
   value = gAppState.divergencePeriod;
+  xSemaphoreGive(gAppStateMutex);
+  return value;
+}
+
+void setDivergenceEffectMs(uint16_t value) {
+  xSemaphoreTake(gAppStateMutex, portMAX_DELAY);
+  gAppState.divergenceEffectMs = value;
+  xSemaphoreGive(gAppStateMutex);
+}
+
+uint16_t getDivergenceEffectMs() {
+  uint16_t value;
+  xSemaphoreTake(gAppStateMutex, portMAX_DELAY);
+  value = gAppState.divergenceEffectMs;
   xSemaphoreGive(gAppStateMutex);
   return value;
 }

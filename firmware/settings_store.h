@@ -6,5 +6,6 @@
 void loadSettings();
 void saveDimmingSetting(uint8_t dimming);
 void saveDivergencePeriodSetting(uint32_t periodSec);
+void saveDivergenceEffectSetting(uint16_t effectMs);
 
 #endif

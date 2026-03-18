@@ -80,6 +80,14 @@ namespace {
     return String(period) + " sec";
   }
 
+  String getDivergenceEffectText(const AppState& state) {
+    if (state.divergenceEffectMs % 1000 == 0) {
+      return String(state.divergenceEffectMs / 1000) + " sec";
+    }
+
+    return String(state.divergenceEffectMs) + " ms";
+  }
+
   String escapeJson(const String& input) {
     String output;
     output.reserve(input.length() + 32);
@@ -249,6 +257,12 @@ namespace {
     </div>
 
     <div class="card">
+      <div class="label">DIVERGENCE EFFECT TIME</div>
+      <div class="status-value" id="divergenceEffectStatus">__DIVERGENCE_EFFECT_TEXT__</div>
+      <div class="hint">랜덤 숫자가 표시되는 지속 시간입니다.</div>
+    </div>
+
+    <div class="card">
       <div class="label">DIMMING</div>
       <input type="range" min="0" max="100" value="__DIMMING__" id="dimmingSlider">
       <div class="slider-value"><span id="dimmingValue">__DIMMING__</span>%</div>
@@ -266,6 +280,19 @@ namespace {
       </select>
       <button onclick="applyPeriod()">주기 적용</button>
       <div class="hint">다이버전스미터 모드 동작 주기를 설정합니다.</div>
+    </div>
+
+    <div class="card">
+      <div class="label">DIVERGENCE EFFECT TIME</div>
+      <select id="divergenceEffect">
+        <option value="1000">1 second</option>
+        <option value="1500">1.5 seconds</option>
+        <option value="2500">2.5 seconds</option>
+        <option value="4000">4 seconds</option>
+        <option value="6000">6 seconds</option>
+      </select>
+      <button onclick="applyEffect()">효과 시간 적용</button>
+      <div class="hint">주기가 도달했을 때 랜덤 숫자가 유지되는 시간입니다.</div>
     </div>
 
     <div class="card">
@@ -303,7 +330,9 @@ namespace {
     const timeSource = document.getElementById('timeSource');
     const dimmingStatus = document.getElementById('dimmingStatus');
     const divergencePeriodStatus = document.getElementById('divergencePeriodStatus');
+    const divergenceEffectStatus = document.getElementById('divergenceEffectStatus');
     const periodSelect = document.getElementById('divergencePeriod');
+    const effectSelect = document.getElementById('divergenceEffect');
     const manualRtcTime = document.getElementById('manualRtcTime');
     const rtcLogs = document.getElementById('rtcLogs');
     const debugLogs = document.getElementById('debugLogs');
@@ -321,6 +350,12 @@ namespace {
     async function applyPeriod() {
       const value = periodSelect.value;
       await fetch('/api/period?value=' + value);
+      await refreshState();
+    }
+
+    async function applyEffect() {
+      const value = effectSelect.value;
+      await fetch('/api/effect?value=' + value);
       await refreshState();
     }
 
@@ -373,10 +408,12 @@ namespace {
         timeSource.textContent = data.timeSourceText;
         dimmingStatus.textContent = data.dimmingText;
         divergencePeriodStatus.textContent = data.divergencePeriodText;
+        divergenceEffectStatus.textContent = data.divergenceEffectText;
 
         slider.value = data.dimming;
         dimmingValue.textContent = data.dimming;
         periodSelect.value = String(data.divergencePeriod);
+        effectSelect.value = String(data.divergenceEffectMs);
       } catch (e) {
         console.log(e);
       }
@@ -432,6 +469,7 @@ namespace {
     html.replace("__DIMMING__", String(state.dimming));
     html.replace("__DIMMING_TEXT__", getDimmingText(state));
     html.replace("__DIVERGENCE_PERIOD_TEXT__", getDivergencePeriodText(state));
+    html.replace("__DIVERGENCE_EFFECT_TEXT__", getDivergenceEffectText(state));
 
     return html;
   }
@@ -457,7 +495,9 @@ namespace {
     json += "\"dimming\":" + String(state.dimming) + ",";
     json += "\"dimmingText\":\"" + getDimmingText(state) + "\",";
     json += "\"divergencePeriod\":" + String(state.divergencePeriod) + ",";
-    json += "\"divergencePeriodText\":\"" + getDivergencePeriodText(state) + "\"";
+    json += "\"divergencePeriodText\":\"" + getDivergencePeriodText(state) + "\",";
+    json += "\"divergenceEffectMs\":" + String(state.divergenceEffectMs) + ",";
+    json += "\"divergenceEffectText\":\"" + getDivergenceEffectText(state) + "\"";
     json += "}";
 
     server.send(200, "application/json", json);
@@ -568,6 +608,27 @@ namespace {
     server.send(200, "text/plain", "OK");
   }
 
+  void handleApiEffect() {
+    if (!server.hasArg("value")) {
+      server.send(400, "text/plain", "missing value");
+      return;
+    }
+
+    uint16_t value = static_cast<uint16_t>(server.arg("value").toInt());
+    bool valid = (value == 1000 || value == 1500 || value == 2500 || value == 4000 || value == 6000);
+
+    if (!valid) {
+      server.send(400, "text/plain", "invalid value");
+      return;
+    }
+
+    setDivergenceEffectMs(value);
+    saveDivergenceEffectSetting(value);
+
+    WEB_API_DEBUG_PRINTF("[WEB] divergence effect updated: %u ms\n", value);
+    server.send(200, "text/plain", "OK");
+  }
+
   void handleNotFound() {
     server.sendHeader("Location", "/", true);
     server.send(302, "text/plain", "");
@@ -617,6 +678,7 @@ void startWebServer() {
   server.on("/api/set-time", HTTP_GET, handleApiSetTime);
   server.on("/api/dimming", HTTP_GET, handleApiDimming);
   server.on("/api/period", HTTP_GET, handleApiPeriod);
+  server.on("/api/effect", HTTP_GET, handleApiEffect);
   server.onNotFound(handleNotFound);
   server.begin();
 

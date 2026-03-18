@@ -27,6 +27,7 @@ struct AppState {
   uint8_t gpsSatellites;
   uint8_t dimming;
   uint32_t divergencePeriod;
+  uint16_t divergenceEffectMs;
   TimeSource timeSource;
   ClockData currentTime;
 };
@@ -56,6 +57,9 @@ uint8_t getDimming();
 
 void setDivergencePeriod(uint32_t value);
 uint32_t getDivergencePeriod();
+
+void setDivergenceEffectMs(uint16_t value);
+uint16_t getDivergenceEffectMs();
 
 void setRtcValid(bool valid);
 bool getRtcValid();

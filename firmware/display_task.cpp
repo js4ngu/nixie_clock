@@ -1,9 +1,11 @@
 #include "display_task.h"
+
 #include <Arduino.h>
+
 #include "app_state.h"
+#include "debug_config.h"
 
 namespace {
-
   TaskHandle_t displayTaskHandle = nullptr;
 
   constexpr int DATA   = 32;
@@ -14,6 +16,8 @@ namespace {
   constexpr int CLR    = 27;
 
   static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+  constexpr uint32_t DISPLAY_REFRESH_MS = 100;
+  constexpr uint32_t DIVERGENCE_FRAME_MS = 80;
 
   // ===== digit → bit 변환 (일단 그대로) =====
   uint8_t digitToByte(uint8_t d) {
@@ -39,6 +43,14 @@ namespace {
     portEXIT_CRITICAL(&mux);
   }
 
+  void writeRandomDigits() {
+    uint8_t d1 = static_cast<uint8_t>(random(0, 10));
+    uint8_t d2 = static_cast<uint8_t>(random(0, 10));
+    uint8_t d3 = static_cast<uint8_t>(random(0, 10));
+    uint8_t d4 = static_cast<uint8_t>(random(0, 10));
+    writeDigits(d1, d2, d3, d4);
+  }
+
   void displayTask(void *pvParameters) {
     (void)pvParameters;
 
@@ -52,30 +64,54 @@ namespace {
     digitalWrite(OE, LOW);
     digitalWrite(CLR, HIGH);
 
+    randomSeed(micros());
+
+    uint32_t nextDivergenceStartMs = millis() + (getDivergencePeriod() * 1000UL);
+    uint32_t divergenceEndMs = 0;
+    uint32_t nextDivergenceFrameMs = 0;
+    bool divergenceActive = false;
+
     while (1) {
-
-      // ===== AppState에서 시간 읽기 =====
       AppState state;
-      getAppStateSnapshot(state);  // :contentReference[oaicite:0]{index=0}
+      getAppStateSnapshot(state);
 
-      uint8_t hour   = state.currentTime.hour;
-      uint8_t minute = state.currentTime.minute;
+      const uint32_t nowMs = millis();
+      const uint32_t divergencePeriodMs = state.divergencePeriod * 1000UL;
 
-      // ===== 자리 분리 =====
-      uint8_t d1 = hour / 10;
-      uint8_t d2 = hour % 10;
-      uint8_t d3 = minute / 10;
-      uint8_t d4 = minute % 10;
+      if (!divergenceActive && divergencePeriodMs > 0 &&
+          static_cast<int32_t>(nowMs - nextDivergenceStartMs) >= 0) {
+        divergenceActive = true;
+        divergenceEndMs = nowMs + state.divergenceEffectMs;
+        nextDivergenceFrameMs = nowMs;
+        nextDivergenceStartMs = nowMs + divergencePeriodMs;
+        DISPLAY_DEBUG_PRINTF(
+          "[DISPLAY] divergence effect started for %lu ms\n",
+          static_cast<unsigned long>(state.divergenceEffectMs)
+        );
+      }
 
-      // ===== 출력 =====
-      writeDigits(d1, d2, d3, d4);
+      if (divergenceActive) {
+        if (static_cast<int32_t>(nowMs - nextDivergenceFrameMs) >= 0) {
+          writeRandomDigits();
+          nextDivergenceFrameMs = nowMs + DIVERGENCE_FRAME_MS;
+        }
 
-      Serial.printf(
-        "[DISPLAY] %02u:%02u -> %u %u %u %u\n",
-        hour, minute, d1, d2, d3, d4
-      );
+        if (static_cast<int32_t>(nowMs - divergenceEndMs) >= 0) {
+          divergenceActive = false;
+          DISPLAY_DEBUG_PRINTLN("[DISPLAY] divergence effect ended");
+        }
+      } else {
+        uint8_t hour = state.currentTime.hour;
+        uint8_t minute = state.currentTime.minute;
+        uint8_t d1 = hour / 10;
+        uint8_t d2 = hour % 10;
+        uint8_t d3 = minute / 10;
+        uint8_t d4 = minute % 10;
 
-      vTaskDelay(pdMS_TO_TICKS(100));  // 100ms 추천
+        writeDigits(d1, d2, d3, d4);
+      }
+
+      vTaskDelay(pdMS_TO_TICKS(DISPLAY_REFRESH_MS));
     }
   }
 }
