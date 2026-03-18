@@ -109,23 +109,33 @@ namespace {
 
     rtcReady = true;
 
-    // ===== 컴파일 시간으로 RTC 초기화 =====
-    DateTime compileTime(F(__DATE__), F(__TIME__));
-    rtc.adjust(compileTime);
-
-    RTC_DEBUG_PRINTF(
-      "[RTC INIT] set from compile time: %04u-%02u-%02u %02u:%02u:%02u\n",
-      compileTime.year(),
-      compileTime.month(),
-      compileTime.day(),
-      compileTime.hour(),
-      compileTime.minute(),
-      compileTime.second()
-    );
-
     if (rtc.lostPower()) {
       RTC_DEBUG_PRINTLN("[RTC TASK] WARNING: DS3231 lost power");
-      RTC_DEBUG_PRINTLN("[RTC TASK] time may be invalid");
+      RTC_DEBUG_PRINTLN("[RTC TASK] restoring RTC from compile time");
+
+      DateTime compileTime(F(__DATE__), F(__TIME__));
+      rtc.adjust(compileTime);
+
+      RTC_DEBUG_PRINTF(
+        "[RTC INIT] set from compile time: %04u-%02u-%02u %02u:%02u:%02u\n",
+        compileTime.year(),
+        compileTime.month(),
+        compileTime.day(),
+        compileTime.hour(),
+        compileTime.minute(),
+        compileTime.second()
+      );
+    } else {
+      DateTime now = rtc.now();
+      RTC_DEBUG_PRINTF(
+        "[RTC INIT] keeping RTC time: %04u-%02u-%02u %02u:%02u:%02u\n",
+        now.year(),
+        now.month(),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+      );
     }
 
     setRtcValid(true);
@@ -185,6 +195,29 @@ bool syncRTCFromGpsUtc(
 
   RTC_DEBUG_PRINTF(
     "[RTC SYNC] adjusted from GPS UTC -> KST: %04u-%02u-%02u %02u:%02u:%02u\n",
+    year, month, day, hour, minute, second
+  );
+
+  return true;
+}
+
+bool setRTCFromLocalTime(
+  uint16_t year,
+  uint8_t month,
+  uint8_t day,
+  uint8_t hour,
+  uint8_t minute,
+  uint8_t second
+) {
+  if (!rtcReady) {
+    return false;
+  }
+
+  DateTime target(year, month, day, hour, minute, second);
+  rtc.adjust(target);
+
+  RTC_DEBUG_PRINTF(
+    "[RTC SET] adjusted from web UI: %04u-%02u-%02u %02u:%02u:%02u\n",
     year, month, day, hour, minute, second
   );
 

@@ -8,6 +8,7 @@
 #include "settings_store.h"
 #include "debug_config.h"
 #include "debug_log.h"
+#include "rtc_task.h"
 
 namespace {
   const char* AP_SSID = "NixieClock";
@@ -96,6 +97,15 @@ namespace {
     }
 
     return output;
+  }
+
+  bool parseUintArg(const char* name, int& outValue) {
+    if (!server.hasArg(name)) {
+      return false;
+    }
+
+    outValue = server.arg(name).toInt();
+    return true;
   }
 
   String makeHtmlPage(const AppState& state) {
@@ -201,6 +211,17 @@ namespace {
     .log-box.rtc {
       color: #7ed7ff;
     }
+    input[type=datetime-local] {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: none;
+      font-size: 16px;
+      background: #2c2c2e;
+      color: #fff;
+      margin-top: 10px;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -248,6 +269,19 @@ namespace {
     </div>
 
     <div class="card">
+      <div class="label">RTC SYNC</div>
+      <button onclick="syncBrowserTime()">브라우저 시간으로 동기화</button>
+      <div class="hint">현재 접속한 폰 또는 PC 시간을 DS3231 RTC에 반영합니다.</div>
+    </div>
+
+    <div class="card">
+      <div class="label">RTC MANUAL SET</div>
+      <input type="datetime-local" id="manualRtcTime">
+      <button onclick="applyManualRtcTime()">수동 시간 적용</button>
+      <div class="hint">GPS 수신이 안 될 때 수동으로 RTC 시간을 맞출 수 있습니다.</div>
+    </div>
+
+    <div class="card">
       <div class="label">RTC LOG</div>
       <div class="hint">RTC 초기화, 동기화, 현재 시각 갱신 로그만 별도로 표시합니다.</div>
       <pre class="log-box rtc" id="rtcLogs">loading...</pre>
@@ -270,6 +304,7 @@ namespace {
     const dimmingStatus = document.getElementById('dimmingStatus');
     const divergencePeriodStatus = document.getElementById('divergencePeriodStatus');
     const periodSelect = document.getElementById('divergencePeriod');
+    const manualRtcTime = document.getElementById('manualRtcTime');
     const rtcLogs = document.getElementById('rtcLogs');
     const debugLogs = document.getElementById('debugLogs');
 
@@ -287,6 +322,44 @@ namespace {
       const value = periodSelect.value;
       await fetch('/api/period?value=' + value);
       await refreshState();
+    }
+
+    async function setRtcTime(date) {
+      const params = new URLSearchParams({
+        year: String(date.getFullYear()),
+        month: String(date.getMonth() + 1),
+        day: String(date.getDate()),
+        hour: String(date.getHours()),
+        minute: String(date.getMinutes()),
+        second: String(date.getSeconds())
+      });
+
+      const res = await fetch('/api/set-time?' + params.toString());
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      await refreshAll();
+    }
+
+    async function syncBrowserTime() {
+      try {
+        await setRtcTime(new Date());
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    async function applyManualRtcTime() {
+      if (!manualRtcTime.value) {
+        return;
+      }
+
+      try {
+        await setRtcTime(new Date(manualRtcTime.value));
+      } catch (e) {
+        console.log(e);
+      }
     }
 
     async function refreshState() {
@@ -401,6 +474,52 @@ namespace {
     server.send(200, "application/json", json);
   }
 
+  void handleApiSetTime() {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+
+    if (!parseUintArg("year", year) ||
+        !parseUintArg("month", month) ||
+        !parseUintArg("day", day) ||
+        !parseUintArg("hour", hour) ||
+        !parseUintArg("minute", minute) ||
+        !parseUintArg("second", second)) {
+      server.send(400, "text/plain", "missing time field");
+      return;
+    }
+
+    bool valid =
+      year >= 2024 && year <= 2099 &&
+      month >= 1 && month <= 12 &&
+      day >= 1 && day <= 31 &&
+      hour >= 0 && hour <= 23 &&
+      minute >= 0 && minute <= 59 &&
+      second >= 0 && second <= 59;
+
+    if (!valid) {
+      server.send(400, "text/plain", "invalid time field");
+      return;
+    }
+
+    if (!setRTCFromLocalTime(
+      static_cast<uint16_t>(year),
+      static_cast<uint8_t>(month),
+      static_cast<uint8_t>(day),
+      static_cast<uint8_t>(hour),
+      static_cast<uint8_t>(minute),
+      static_cast<uint8_t>(second)
+    )) {
+      server.send(503, "text/plain", "rtc not ready");
+      return;
+    }
+
+    server.send(200, "text/plain", "OK");
+  }
+
   void handleApiLogs() {
     String logs;
     getDebugLogSnapshot(logs);
@@ -495,6 +614,7 @@ void startWebServer() {
   server.on("/api/state", HTTP_GET, handleApiState);
   server.on("/api/rtc-logs", HTTP_GET, handleApiRtcLogs);
   server.on("/api/logs", HTTP_GET, handleApiLogs);
+  server.on("/api/set-time", HTTP_GET, handleApiSetTime);
   server.on("/api/dimming", HTTP_GET, handleApiDimming);
   server.on("/api/period", HTTP_GET, handleApiPeriod);
   server.onNotFound(handleNotFound);
