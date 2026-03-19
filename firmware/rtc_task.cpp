@@ -111,32 +111,19 @@ namespace {
 
     if (rtc.lostPower()) {
       RTC_DEBUG_PRINTLN("[RTC TASK] WARNING: DS3231 lost power");
-      RTC_DEBUG_PRINTLN("[RTC TASK] restoring RTC from compile time");
-
-      DateTime compileTime(F(__DATE__), F(__TIME__));
-      rtc.adjust(compileTime);
-
-      RTC_DEBUG_PRINTF(
-        "[RTC INIT] set from compile time: %04u-%02u-%02u %02u:%02u:%02u\n",
-        compileTime.year(),
-        compileTime.month(),
-        compileTime.day(),
-        compileTime.hour(),
-        compileTime.minute(),
-        compileTime.second()
-      );
-    } else {
-      DateTime now = rtc.now();
-      RTC_DEBUG_PRINTF(
-        "[RTC INIT] keeping RTC time: %04u-%02u-%02u %02u:%02u:%02u\n",
-        now.year(),
-        now.month(),
-        now.day(),
-        now.hour(),
-        now.minute(),
-        now.second()
-      );
+      RTC_DEBUG_PRINTLN("[RTC TASK] keeping RTC register value as-is");
     }
+
+    DateTime now = rtc.now();
+    RTC_DEBUG_PRINTF(
+      "[RTC INIT] current RTC time: %04u-%02u-%02u %02u:%02u:%02u\n",
+      now.year(),
+      now.month(),
+      now.day(),
+      now.hour(),
+      now.minute(),
+      now.second()
+    );
 
     setRtcValid(true);
     RTC_DEBUG_PRINTLN("[RTC TASK] DS3231 init OK");
